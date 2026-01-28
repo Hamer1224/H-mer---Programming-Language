@@ -1,0 +1,12 @@
+-- Multi-digit test
+print 100
+print 42
+print 7
+
+if ?<%50> then
+    print 1
+done
+
+-- File creation test (check with 'ls' after running)
+#"score.txt":write score
+

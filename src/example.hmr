@@ -1,4 +1,4 @@
-#math
+Get math
 -- Using the ?<%N> Chaos Operator (Requires math.seed)
 if ?<%40> is
     print ">> Success: Luck Roll hit (40%)"

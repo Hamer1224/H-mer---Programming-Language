@@ -25,12 +25,20 @@ impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self { Self { tokens, pos: 0 } }
     
     fn advance(&mut self) -> Token {
-        let t = self.tokens[self.pos].clone();
-        if self.pos < self.tokens.len() - 1 { self.pos += 1; }
+        let t = self.peek();
+        if self.pos < self.tokens.len() {
+            self.pos += 1;
+        }
         t
     }
 
-    fn peek(&self) -> Token { self.tokens[self.pos].clone() }
+    fn peek(&self) -> Token {
+        if self.pos < self.tokens.len() {
+            self.tokens[self.pos].clone()
+        } else {
+            Token::EOF
+        }
+    }
 
     pub fn parse_program(&mut self) -> Vec<Stmt> {
         let mut stmts = Vec::new();
@@ -43,10 +51,14 @@ impl Parser {
     fn parse_path(&mut self) -> Vec<String> {
         let mut path = Vec::new();
         if let Token::Identifier(s) = self.peek() {
-            self.advance(); path.push(s);
+            self.advance(); 
+            path.push(s);
             while self.peek() == Token::Dot {
-                self.advance();
-                if let Token::Identifier(s) = self.advance() { path.push(s); }
+                self.advance(); // consume dot
+                if let Token::Identifier(s) = self.peek() {
+                    self.advance();
+                    path.push(s);
+                } else { break; }
             }
         }
         path
@@ -54,74 +66,48 @@ impl Parser {
 
     fn parse_statement(&mut self) -> Stmt {
         match self.peek() {
-            // Get <filename>: Modular File Inclusion
             Token::Get => {
                 self.advance();
                 let filename = if let Token::Identifier(s) = self.advance() { s } else { "lib".into() };
                 let path = format!("{}.hmr", filename);
                 match fs::read_to_string(&path) {
                     Ok(content) => Stmt::MergeBlock(content),
-                    Err(_) => Stmt::AsmBlock(format!("// Error: Could not read {}.hmr", filename)),
+                    Err(_) => Stmt::AsmBlock(format!("// Error: File not found {}.hmr", filename)),
                 }
             }
-            // @ symbols: asm, intel, python
             Token::At => {
-                self.advance();
-                match self.peek() {
-                    Token::Identifier(ref s) if s == "intel" => {
-                        self.advance(); if self.peek() == Token::Is { self.advance(); }
-                        let mut code = String::new();
-                        while self.peek() != Token::Done && self.peek() != Token::EOF {
-                            match self.advance() {
-                                Token::Identifier(id) => code.push_str(&format!("{} ", id)),
-                                Token::Number(n) => code.push_str(&format!("{} ", n)),
-                                Token::Comma => code.push_str(", "),
-                                Token::LeftBracket => code.push_str("[ "),
-                                Token::RightBracket => code.push_str("] "),
-                                _ => {}
-                            }
-                        }
-                        if self.peek() == Token::Done { self.advance(); }
-                        Stmt::IntelBlock(code)
+                self.advance(); // @
+                let type_ident = if let Token::Identifier(s) = self.advance() { s } else { "".into() };
+                if self.peek() == Token::Is { self.advance(); }
+                
+                let mut content = String::new();
+                while self.peek() != Token::Done && self.peek() != Token::EOF {
+                    let t = self.advance();
+                    match t {
+                        Token::Identifier(id) => content.push_str(&format!("{} ", id)),
+                        Token::Number(n) => content.push_str(&format!("{} ", n)),
+                        Token::StringLit(s) => content.push_str(&format!("\"{}\" ", s)),
+                        Token::Comma => content.push_str(", "),
+                        Token::LeftBracket => content.push_str("[ "),
+                        Token::RightBracket => content.push_str("] "),
+                        _ => {}
                     }
-                    Token::Identifier(ref s) if s == "python" => {
-                        self.advance(); if self.peek() == Token::Is { self.advance(); }
-                        let mut script = String::new();
-                        while self.peek() != Token::Done {
-                            match self.advance() {
-                                Token::Identifier(id) => script.push_str(&format!("{} ", id)),
-                                Token::StringLit(s) => script.push_str(&format!("\"{}\" ", s)),
-                                Token::Number(n) => script.push_str(&format!("{} ", n)),
-                                _ => {}
-                            }
-                        }
-                        self.advance(); // done
-                        Stmt::PythonBlock(script)
-                    }
-                    Token::Identifier(ref s) if s == "asm" => {
-                        self.advance(); if self.peek() == Token::Is { self.advance(); }
-                        let mut code = String::new();
-                        while self.peek() != Token::Done {
-                            match self.advance() {
-                                Token::Identifier(id) => code.push_str(&format!("{} ", id)),
-                                Token::Number(n) => code.push_str(&format!("#{} ", n)),
-                                Token::Comma => code.push_str(", "),
-                                _ => {}
-                            }
-                        }
-                        self.advance(); // done
-                        Stmt::AsmBlock(code)
-                    }
-                    _ => Stmt::AsmBlock("nop".into())
+                }
+                if self.peek() == Token::Done { self.advance(); }
+
+                match type_ident.as_str() {
+                    "intel" => Stmt::IntelBlock(content),
+                    "python" => Stmt::PythonBlock(content),
+                    _ => Stmt::AsmBlock(content),
                 }
             }
             Token::Local => {
                 self.advance();
-                let name = if let Token::Identifier(s) = self.advance() { s } else { "".into() };
+                let name = if let Token::Identifier(s) = self.advance() { s } else { "tmp".into() };
                 if self.peek() == Token::Assign { self.advance(); }
                 if self.peek() == Token::New {
                     self.advance();
-                    let cn = if let Token::Identifier(s) = self.advance() { s } else { "".into() };
+                    let cn = if let Token::Identifier(s) = self.advance() { s } else { "Object".into() };
                     Stmt::HeapAlloc { var_name: name, class_name: cn }
                 } else {
                     let val = if let Token::Number(n) = self.advance() { n } else { 0.0 };
@@ -130,21 +116,28 @@ impl Parser {
             }
             Token::Class => {
                 self.advance();
-                let name = if let Token::Identifier(s) = self.advance() { s } else { "".into() };
+                let name = if let Token::Identifier(s) = self.advance() { s } else { "Unnamed".into() };
                 if self.peek() == Token::Is { self.advance(); }
                 let mut fields = Vec::new();
-                while !matches!(self.peek(), Token::Done | Token::EOF) {
+                while self.peek() != Token::Done && self.peek() != Token::EOF {
                     if let Token::Identifier(s) = self.advance() { fields.push(s); }
+                    else { self.advance(); }
                 }
                 if self.peek() == Token::Done { self.advance(); }
                 Stmt::ClassDef { name, fields }
             }
             Token::Print => {
                 self.advance();
-                if let Token::StringLit(s) = self.peek() { self.advance(); Stmt::PrintString(s) }
-                else {
-                    let p = self.parse_path();
-                    if !p.is_empty() { Stmt::PrintVar(p[0].clone()) } else { Stmt::AsmBlock("nop".into()) }
+                match self.peek() {
+                    Token::StringLit(s) => {
+                        self.advance();
+                        Stmt::PrintString(s)
+                    },
+                    _ => {
+                        let path = self.parse_path();
+                        let name = path.get(0).cloned().unwrap_or("".into());
+                        Stmt::PrintVar(name)
+                    }
                 }
             }
             Token::If => {
@@ -155,40 +148,55 @@ impl Parser {
                     let chance = if let Token::Number(n) = self.advance() { n } else { 0.0 };
                     while matches!(self.peek(), Token::Greater | Token::Is | Token::Then) { self.advance(); }
                     let mut body = Vec::new();
-                    while self.peek() != Token::Done { body.push(self.parse_statement()); }
-                    self.advance();
+                    while self.peek() != Token::Done && self.peek() != Token::EOF {
+                        body.push(self.parse_statement());
+                    }
+                    if self.peek() == Token::Done { self.advance(); }
                     Stmt::ProbIf { chance, body }
                 } else {
-                    let p = self.parse_path(); let op = self.advance();
+                    let p = self.parse_path(); 
+                    let op = self.advance();
                     let val = if let Token::Number(n) = self.advance() { n } else { 0.0 };
                     while matches!(self.peek(), Token::Then | Token::Is) { self.advance(); }
                     let mut body = Vec::new();
-                    while self.peek() != Token::Done { body.push(self.parse_statement()); }
-                    self.advance();
+                    while self.peek() != Token::Done && self.peek() != Token::EOF {
+                        body.push(self.parse_statement());
+                    }
+                    if self.peek() == Token::Done { self.advance(); }
                     Stmt::IfStmt { path: p, op, rhs_val: val, body }
                 }
             }
             Token::While => {
-                self.advance(); let p = self.parse_path(); let op = self.advance();
+                self.advance();
+                let p = self.parse_path();
+                let op = self.advance();
                 let val = if let Token::Number(n) = self.advance() { n } else { 0.0 };
                 while matches!(self.peek(), Token::Do | Token::Is) { self.advance(); }
                 let mut body = Vec::new();
-                while self.peek() != Token::Done { body.push(self.parse_statement()); }
-                self.advance();
+                while self.peek() != Token::Done && self.peek() != Token::EOF {
+                    body.push(self.parse_statement());
+                }
+                if self.peek() == Token::Done { self.advance(); }
                 Stmt::WhileStmt { path: p, op, rhs_val: val, body }
             }
             _ => {
                 let path = self.parse_path();
                 if self.peek() == Token::Assign {
                     self.advance();
-                    if let Token::Number(v) = self.peek() { self.advance(); Stmt::FieldAssign { path, value: v } }
-                    else {
-                        self.advance(); // consume self
+                    if let Token::Number(v) = self.peek() {
+                        self.advance();
+                        Stmt::FieldAssign { path, value: v }
+                    } else {
+                        // Handle math like 'hp = hp + 10' or compressed formats
+                        self.advance(); // Skip self-ref identifier if exists
                         let op = self.advance();
                         let val = if let Token::Number(v) = self.advance() { v } else { 0.0 };
                         Stmt::FieldMath { path, op, rhs_val: val }
                     }
-                } else { self.advance(); Stmt::AsmBlock("nop".into()) }
+                } else {
+                    self.advance(); // Safety: always consume at least one token
+                    Stmt::AsmBlock("nop".into())
+                }
             }
         }
     }

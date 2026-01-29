@@ -84,12 +84,31 @@ impl Parser {
                 while self.peek() != Token::Done && self.peek() != Token::EOF {
                     let t = self.advance();
                     match t {
-                        Token::Identifier(id) => content.push_str(&format!("{} ", id)),
+                        Token::Identifier(id) => {
+                            // Heuristic: If we see a likely instruction after a previous block, add newline
+                            if !content.is_empty() && !content.ends_with(", ") && !content.ends_with("[ ") {
+                                content.push('\n');
+                                content.push_str("    ");
+                            }
+                            content.push_str(&format!("{} ", id));
+                        }
                         Token::Number(n) => content.push_str(&format!("{} ", n)),
                         Token::StringLit(s) => content.push_str(&format!("\"{}\" ", s)),
-                        Token::Comma => content.push_str(", "),
+                        Token::Comma => {
+                            content = content.trim_end().to_string();
+                            content.push_str(", ");
+                        }
                         Token::LeftBracket => content.push_str("[ "),
-                        Token::RightBracket => content.push_str("] "),
+                        Token::RightBracket => {
+                            content = content.trim_end().to_string();
+                            content.push_str("] ");
+                        }
+                        Token::Plus => content.push_str("+ "),
+                        Token::Minus => content.push_str("- "),
+                        Token::Star => content.push_str("* "),
+                        Token::Slash => content.push_str("/ "),
+                        Token::Quest => content.push_str("? "),
+                        Token::Percent => content.push_str("% "),
                         _ => {}
                     }
                 }
@@ -146,7 +165,7 @@ impl Parser {
                     self.advance(); // ?
                     while matches!(self.peek(), Token::Less | Token::Percent) { self.advance(); }
                     let chance = if let Token::Number(n) = self.advance() { n } else { 0.0 };
-                    while matches!(self.peek(), Token::Greater | Token::Is | Token::Then) { self.advance(); }
+                    while matches!(self.peek(), Token::Then | Token::Is) { self.advance(); }
                     let mut body = Vec::new();
                     while self.peek() != Token::Done && self.peek() != Token::EOF {
                         body.push(self.parse_statement());

@@ -81,27 +81,48 @@ impl Parser {
                 if self.peek() == Token::Is { self.advance(); }
                 
                 let mut content = String::new();
+                let mut last_was_comma = false;
+                let mut last_was_bracket = false;
+
                 while self.peek() != Token::Done && self.peek() != Token::EOF {
                     let t = self.advance();
                     match t {
                         Token::Identifier(id) => {
-                            // Heuristic: If we see a likely instruction after a previous block, add newline
-                            if !content.is_empty() && !content.ends_with(", ") && !content.ends_with("[ ") {
+                            // Only add newline if this identifier looks like a new instruction
+                            // (not following a comma or an open bracket)
+                            if !content.is_empty() && !last_was_comma && !last_was_bracket {
                                 content.push('\n');
                                 content.push_str("    ");
                             }
-                            content.push_str(&format!("{} ", id));
+                            content.push_str(&id);
+                            content.push(' ');
+                            last_was_comma = false;
+                            last_was_bracket = false;
                         }
-                        Token::Number(n) => content.push_str(&format!("{} ", n)),
-                        Token::StringLit(s) => content.push_str(&format!("\"{}\" ", s)),
+                        Token::Number(n) => {
+                            content.push_str(&format!("{} ", n));
+                            last_was_comma = false;
+                            last_was_bracket = false;
+                        }
+                        Token::StringLit(s) => {
+                            content.push_str(&format!("\"{}\" ", s));
+                            last_was_comma = false;
+                            last_was_bracket = false;
+                        }
                         Token::Comma => {
                             content = content.trim_end().to_string();
                             content.push_str(", ");
+                            last_was_comma = true;
                         }
-                        Token::LeftBracket => content.push_str("[ "),
+                        Token::LeftBracket => {
+                            content.push_str("[ ");
+                            last_was_bracket = true;
+                        }
                         Token::RightBracket => {
                             content = content.trim_end().to_string();
                             content.push_str("] ");
+                            last_was_comma = false;
+                            last_was_bracket = false;
                         }
                         Token::Plus => content.push_str("+ "),
                         Token::Minus => content.push_str("- "),
@@ -115,9 +136,9 @@ impl Parser {
                 if self.peek() == Token::Done { self.advance(); }
 
                 match type_ident.as_str() {
-                    "intel" => Stmt::IntelBlock(content),
-                    "python" => Stmt::PythonBlock(content),
-                    _ => Stmt::AsmBlock(content),
+                    "intel" => Stmt::IntelBlock(content.trim().to_string()),
+                    "python" => Stmt::PythonBlock(content.trim().to_string()),
+                    _ => Stmt::AsmBlock(content.trim().to_string()),
                 }
             }
             Token::Local => {

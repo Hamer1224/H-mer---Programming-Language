@@ -3,7 +3,7 @@ pub enum Token {
     Class, Is, Done, Local, Print, Get, At, Assign, Dot, New,
     If, Then, While, Do, Greater, Less, Equal,
     Plus, Minus, Star, Slash, Comma, Rest,
-    Quest, Percent, LeftBracket, RightBracket,
+    Quest, Percent, LeftBracket, RightBracket, Hash,
     Identifier(String), Number(f64), StringLit(String), EOF,
 }
 
@@ -20,6 +20,7 @@ impl Lexer {
         if self.pos >= self.input.len() { return Token::EOF; }
         let ch = self.input[self.pos];
         match ch {
+            '#' => { self.pos += 1; Token::Hash },
             '?' => { self.pos += 1; Token::Quest },
             '%' => { self.pos += 1; Token::Percent },
             '@' => { self.pos += 1; Token::At },
@@ -79,4 +80,4 @@ impl Lexer {
     fn skip_whitespace(&mut self) {
         while self.pos < self.input.len() && self.input[self.pos].is_whitespace() { self.pos += 1; }
     }
-}	
+}
